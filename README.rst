@@ -1,24 +1,10 @@
 mixpanel-python
 ==============================
 
-.. image:: https://img.shields.io/pypi/v/mixpanel
-    :target: https://pypi.org/project/mixpanel
-    :alt: PyPI
-
-.. image:: https://img.shields.io/pypi/pyversions/mixpanel
-    :target: https://pypi.org/project/mixpanel
-    :alt: PyPI - Python Version
-
-.. image:: https://img.shields.io/pypi/dm/mixpanel
-    :target: https://pypi.org/project/mixpanel
-    :alt: PyPI - Downloads
-
-.. image:: https://github.com/mixpanel/mixpanel-python/workflows/Tests/badge.svg
-
-This is the official Mixpanel Python library. This library allows for
+This is the unofficial Mixpanel Python asyncio library. This library allows for
 server-side integration of Mixpanel.
 
-To import, export, transform, or delete your Mixpanel data, please see our
+To import, export, transform, or delete your Mixpanel data, please see Mixpanel's
 `mixpanel-utils package`_.
 
 
@@ -27,7 +13,7 @@ Installation
 
 The library can be installed using pip::
 
-    pip install mixpanel
+    pip install https://github.com/Kylmakalle/mixpanel-python-asyncio/archive/master.zip
 
 
 Getting Started
@@ -35,15 +21,15 @@ Getting Started
 
 Typical usage usually looks like this::
 
-    from mixpanel import Mixpanel
+    from mixpanel_asyncio import Mixpanel
 
     mp = Mixpanel(YOUR_TOKEN)
 
     # tracks an event with certain properties
-    mp.track(DISTINCT_ID, 'button clicked', {'color' : 'blue', 'size': 'large'})
+    await mp.track(DISTINCT_ID, 'button clicked', {'color' : 'blue', 'size': 'large'})
 
     # sends an update to a user profile
-    mp.people_set(DISTINCT_ID, {'$first_name' : 'Ilya', 'favorite pizza': 'margherita'})
+    await mp.people_set(DISTINCT_ID, {'$first_name' : 'Ilya', 'favorite pizza': 'margherita'})
 
 You can use an instance of the Mixpanel class for sending all of your events
 and people updates.
@@ -54,8 +40,6 @@ Additional Information
 
 * `Help Docs`_
 * `Full Documentation`_
-* mixpanel-python-async_; a third party tool for sending data asynchronously
-  from the tracking python process.
 
 
 .. |travis-badge| image:: https://travis-ci.org/mixpanel/mixpanel-python.svg?branch=master

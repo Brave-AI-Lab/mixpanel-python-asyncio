@@ -1,13 +1,17 @@
-from mixpanel import Mixpanel
+from mixpanel_asyncio import Mixpanel
+import asyncio
 
-def post_event(token):
+async def post_event(token):
     mixpanel = Mixpanel(token)
-    mixpanel.track('ID', 'Script run')
+    await mixpanel.track('ID', 'Script run')
 
-if __name__ == '__main__':
+async def main():
     # You'll want to change this to be the token
     # from your Mixpanel project. You can find your
     # project token in the project settings dialog
     # of the Mixpanel web application
     demo_token = '0ba349286c780fe53d8b4617d90e2d01'
-    post_event(demo_token)
+    await post_event(demo_token)
+
+if __name__ == "__main__":
+    asyncio.run(main())

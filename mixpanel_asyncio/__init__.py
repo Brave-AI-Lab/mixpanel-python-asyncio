@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""This is the official Mixpanel client library for Python.
+"""This is the unofficial Mixpanel client library for Python asyncio.
 
 Mixpanel client libraries allow for tracking events and setting properties on
 People Analytics profiles from your server-side projects. This is the API
@@ -14,20 +14,20 @@ web, you may also be interested in our `JavaScript library`_.
 Analytics updates. :class:`~.Consumer` and :class:`~.BufferedConsumer` allow
 callers to customize the IO characteristics of their tracking.
 """
-from __future__ import absolute_import, unicode_literals
+
 import datetime
 import json
 import logging
+import ssl
 import time
 import uuid
+from typing import Optional, Type
 
-import requests
-from requests.auth import HTTPBasicAuth
-import six
-from six.moves import range
-import urllib3
+import aiohttp
+from aiohttp import BasicAuth
+from aiohttp_retry import ExponentialRetry, RetryClient
 
-__version__ = '4.10.0'
+__version__ = "1.0.0"
 VERSION = __version__  # TODO: remove when bumping major version.
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ class Mixpanel(object):
     def _make_insert_id(self):
         return uuid.uuid4().hex
 
-    def track(self, distinct_id, event_name, properties=None, meta=None):
+    async def track(self, distinct_id, event_name, properties=None, meta=None):
         """Record an event.
 
         :param str distinct_id: identifies the user triggering the event
@@ -91,7 +91,7 @@ class Mixpanel(object):
             'distinct_id': distinct_id,
             'time': self._now(),
             '$insert_id': self._make_insert_id(),
-            'mp_lib': 'python',
+            'mp_lib': 'python-asyncio',
             '$lib_version': __version__,
         }
         if properties:
@@ -102,9 +102,9 @@ class Mixpanel(object):
         }
         if meta:
             event.update(meta)
-        self._consumer.send('events', json_dumps(event, cls=self._serializer))
+        await self._consumer.send("events", json_dumps(event, cls=self._serializer))
 
-    def import_data(self, api_key, distinct_id, event_name, timestamp,
+    async def import_data(self, api_key, distinct_id, event_name, timestamp,
                     properties=None, meta=None, api_secret=None):
         """Record an event that occurred more than 5 days in the past.
 
@@ -142,7 +142,7 @@ class Mixpanel(object):
             'distinct_id': distinct_id,
             'time': timestamp,
             '$insert_id': self._make_insert_id(),
-            'mp_lib': 'python',
+            'mp_lib': 'python-asyncio',
             '$lib_version': __version__,
         }
         if properties:
@@ -154,9 +154,9 @@ class Mixpanel(object):
         if meta:
             event.update(meta)
 
-        self._consumer.send('imports', json_dumps(event, cls=self._serializer), (api_key, api_secret))
+        await self._consumer.send('imports', json_dumps(event, cls=self._serializer), (api_key, api_secret))
 
-    def alias(self, alias_id, original, meta=None):
+    async def alias(self, alias_id, original, meta=None):
         """Creates an alias which Mixpanel will use to remap one id to another.
 
         :param str alias_id: A distinct_id to be merged with the original
@@ -170,9 +170,6 @@ class Mixpanel(object):
         details
         <https://developer.mixpanel.com/reference/identities#identity-create-alias>`__.
 
-        .. note::
-            Calling this method *always* results in a synchronous HTTP request
-            to Mixpanel servers, regardless of any custom consumer.
         """
         event = {
             'event': '$create_alias',
@@ -185,10 +182,10 @@ class Mixpanel(object):
         if meta:
             event.update(meta)
 
-        sync_consumer = Consumer()
-        sync_consumer.send('events', json_dumps(event, cls=self._serializer))
+        consumer = Consumer()
+        await consumer.send("events", json_dumps(event, cls=self._serializer))
 
-    def merge(self, api_key, distinct_id1, distinct_id2, meta=None, api_secret=None):
+    async def merge(self, api_key, distinct_id1, distinct_id2, meta=None, api_secret=None):
         """
         Merges the two given distinct_ids.
 
@@ -224,9 +221,9 @@ class Mixpanel(object):
         }
         if meta:
             event.update(meta)
-        self._consumer.send('imports', json_dumps(event, cls=self._serializer), (api_key, api_secret))
+        await self._consumer.send('imports', json_dumps(event, cls=self._serializer), (api_key, api_secret))
 
-    def people_set(self, distinct_id, properties, meta=None):
+    async def people_set(self, distinct_id, properties, meta=None):
         """Set properties of a people record.
 
         :param str distinct_id: the profile to update
@@ -235,12 +232,12 @@ class Mixpanel(object):
 
         If the profile does not exist, creates a new profile with these properties.
         """
-        return self.people_update({
+        return await self.people_update({
             '$distinct_id': distinct_id,
             '$set': properties,
         }, meta=meta or {})
 
-    def people_set_once(self, distinct_id, properties, meta=None):
+    async def people_set_once(self, distinct_id, properties, meta=None):
         """Set properties of a people record if they are not already set.
 
         :param str distinct_id: the profile to update
@@ -250,12 +247,12 @@ class Mixpanel(object):
         overwritten. If the profile does not exist, creates a new profile with
         these properties.
         """
-        return self.people_update({
+        return await self.people_update({
             '$distinct_id': distinct_id,
             '$set_once': properties,
         }, meta=meta or {})
 
-    def people_increment(self, distinct_id, properties, meta=None):
+    async def people_increment(self, distinct_id, properties, meta=None):
         """Increment/decrement numerical properties of a people record.
 
         :param str distinct_id: the profile to update
@@ -266,12 +263,12 @@ class Mixpanel(object):
         properties on the record default to zero. Negative values in
         ``properties`` will decrement the given property.
         """
-        return self.people_update({
+        return await self.people_update({
             '$distinct_id': distinct_id,
             '$add': properties,
         }, meta=meta or {})
 
-    def people_append(self, distinct_id, properties, meta=None):
+    async def people_append(self, distinct_id, properties, meta=None):
         """Append to the list associated with a property.
 
         :param str distinct_id: the profile to update
@@ -283,12 +280,12 @@ class Mixpanel(object):
 
             mp.people_append('123', {'Items': 'Super Arm'})
         """
-        return self.people_update({
+        return await self.people_update({
             '$distinct_id': distinct_id,
             '$append': properties,
         }, meta=meta or {})
 
-    def people_union(self, distinct_id, properties, meta=None):
+    async def people_union(self, distinct_id, properties, meta=None):
         """Merge the values of a list associated with a property.
 
         :param str distinct_id: the profile to update
@@ -300,23 +297,23 @@ class Mixpanel(object):
 
             mp.people_union('123', {'Items': ['Super Arm', 'Fire Storm']})
         """
-        return self.people_update({
+        return await self.people_update({
             '$distinct_id': distinct_id,
             '$union': properties,
         }, meta=meta or {})
 
-    def people_unset(self, distinct_id, properties, meta=None):
+    async def people_unset(self, distinct_id, properties, meta=None):
         """Permanently remove properties from a people record.
 
         :param str distinct_id: the profile to update
         :param list properties: property names to remove
         """
-        return self.people_update({
+        return await self.people_update({
             '$distinct_id': distinct_id,
             '$unset': properties,
         }, meta=meta)
 
-    def people_remove(self, distinct_id, properties, meta=None):
+    async def people_remove(self, distinct_id, properties, meta=None):
         """Permanently remove a value from the list associated with a property.
 
         :param str distinct_id: the profile to update
@@ -327,23 +324,24 @@ class Mixpanel(object):
 
             mp.people_remove('123', {'Items': 'Super Arm'})
         """
-        return self.people_update({
+        return await self.people_update({
             '$distinct_id': distinct_id,
             '$remove': properties,
         }, meta=meta or {})
 
-    def people_delete(self, distinct_id, meta=None):
+    async def people_delete(self, distinct_id, meta=None):
         """Permanently delete a people record.
 
         :param str distinct_id: the profile to delete
         """
-        return self.people_update({
+        return await self.people_update({
             '$distinct_id': distinct_id,
             '$delete': "",
         }, meta=meta or None)
 
-    def people_track_charge(self, distinct_id, amount,
-                            properties=None, meta=None):
+    async def people_track_charge(
+        self, distinct_id, amount, properties=None, meta=None
+    ):
         """Track a charge on a people record.
 
         :param str distinct_id: the profile with which to associate the charge
@@ -357,20 +355,20 @@ class Mixpanel(object):
         if properties is None:
             properties = {}
         properties.update({'$amount': amount})
-        return self.people_append(
+        return await self.people_append(
             distinct_id, {'$transactions': properties or {}}, meta=meta or {}
         )
 
-    def people_clear_charges(self, distinct_id, meta=None):
+    async def people_clear_charges(self, distinct_id, meta=None):
         """Permanently clear all charges on a people record.
 
         :param str distinct_id: the profile whose charges will be cleared
         """
-        return self.people_unset(
+        return await self.people_unset(
             distinct_id, ["$transactions"], meta=meta or {},
         )
 
-    def people_update(self, message, meta=None):
+    async def people_update(self, message, meta=None):
         """Send a generic update to Mixpanel people analytics.
 
         :param dict message: the message to send
@@ -389,9 +387,9 @@ class Mixpanel(object):
         record.update(message)
         if meta:
             record.update(meta)
-        self._consumer.send('people', json_dumps(record, cls=self._serializer))
+        await self._consumer.send("people", json_dumps(record, cls=self._serializer))
 
-    def group_set(self, group_key, group_id, properties, meta=None):
+    async def group_set(self, group_key, group_id, properties, meta=None):
         """Set properties of a group profile.
 
         :param str group_key: the group key, e.g. 'company'
@@ -401,13 +399,13 @@ class Mixpanel(object):
 
         If the profile does not exist, creates a new profile with these properties.
         """
-        return self.group_update({
+        return await self.group_update({
             '$group_key': group_key,
             '$group_id': group_id,
             '$set': properties,
         }, meta=meta or {})
 
-    def group_set_once(self, group_key, group_id, properties, meta=None):
+    async def group_set_once(self, group_key, group_id, properties, meta=None):
         """Set properties of a group profile if they are not already set.
 
         :param str group_key: the group key, e.g. 'company'
@@ -418,13 +416,13 @@ class Mixpanel(object):
         overwritten. If the profile does not exist, creates a new profile with
         these properties.
         """
-        return self.group_update({
+        return await self.group_update({
             '$group_key': group_key,
             '$group_id': group_id,
             '$set_once': properties,
         }, meta=meta or {})
 
-    def group_union(self, group_key, group_id, properties, meta=None):
+    async def group_union(self, group_key, group_id, properties, meta=None):
         """Merge the values of a list associated with a property.
 
         :param str group_key: the group key, e.g. 'company'
@@ -437,26 +435,26 @@ class Mixpanel(object):
 
             mp.group_union('company', 'Acme Inc.', {'Items': ['Super Arm', 'Fire Storm']})
         """
-        return self.group_update({
+        return await self.group_update({
             '$group_key': group_key,
             '$group_id': group_id,
             '$union': properties,
         }, meta=meta or {})
 
-    def group_unset(self, group_key, group_id, properties, meta=None):
+    async def group_unset(self, group_key, group_id, properties, meta=None):
         """Permanently remove properties from a group profile.
 
         :param str group_key: the group key, e.g. 'company'
         :param str group_id: the group to update
         :param list properties: property names to remove
         """
-        return self.group_update({
+        return await self.group_update({
             '$group_key': group_key,
             '$group_id': group_id,
             '$unset': properties,
         }, meta=meta)
 
-    def group_remove(self, group_key, group_id, properties, meta=None):
+    async def group_remove(self, group_key, group_id, properties, meta=None):
         """Permanently remove a value from the list associated with a property.
 
         :param str group_key: the group key, e.g. 'company'
@@ -468,25 +466,25 @@ class Mixpanel(object):
 
             mp.group_remove('company', 'Acme Inc.', {'Items': 'Super Arm'})
         """
-        return self.group_update({
+        return await self.group_update({
             '$group_key': group_key,
             '$group_id': group_id,
             '$remove': properties,
         }, meta=meta or {})
 
-    def group_delete(self, group_key, group_id, meta=None):
+    async def group_delete(self, group_key, group_id, meta=None):
         """Permanently delete a group profile.
 
         :param str group_key: the group key, e.g. 'company'
         :param str group_id: the group to delete
         """
-        return self.group_update({
+        return await self.group_update({
             '$group_key': group_key,
             '$group_id': group_id,
             '$delete': "",
         }, meta=meta or None)
 
-    def group_update(self, message, meta=None):
+    async def group_update(self, message, meta=None):
         """Send a generic group profile update
 
         :param dict message: the message to send
@@ -505,7 +503,7 @@ class Mixpanel(object):
         record.update(message)
         if meta:
             record.update(meta)
-        self._consumer.send('groups', json_dumps(record, cls=self._serializer))
+        await self._consumer.send("groups", json_dumps(record, cls=self._serializer))
 
 
 class MixpanelException(Exception):
@@ -553,28 +551,43 @@ class Consumer(object):
         }
 
         self._verify_cert = verify_cert
-        self._request_timeout = request_timeout
 
-        # Work around renamed argument in urllib3.
-        if hasattr(urllib3.util.Retry.DEFAULT, "allowed_methods"):
-            methods_arg = "allowed_methods"
-        else:
-            methods_arg = "method_whitelist"
-
-        retry_args = {
-            "total": retry_limit,
-            "backoff_factor": retry_backoff_factor,
-            "status_forcelist": set(range(500, 600)),
-            methods_arg: {"POST"},
-        }
-        adapter = requests.adapters.HTTPAdapter(
-            max_retries=urllib3.Retry(**retry_args),
+        self.retry_args = ExponentialRetry(
+            attempts=retry_limit,
+            factor=retry_backoff_factor,
+            statuses=set(range(500, 600)),
         )
 
-        self._session = requests.Session()
-        self._session.mount('http', adapter)
+        # aiohttp main session
+        ssl_context = ssl.create_default_context()
 
-    def send(self, endpoint, json_message, api_key=None, api_secret=None):
+        self._session: Optional[aiohttp.ClientSession] = None
+        self._connector_class: Type[aiohttp.TCPConnector] = aiohttp.TCPConnector
+        self._connector_init = dict(ssl=ssl_context)
+
+        if request_timeout is None or isinstance(
+            request_timeout, aiohttp.ClientTimeout
+        ):
+            self._timeout = request_timeout
+        else:
+            self._timeout = aiohttp.ClientTimeout(total=request_timeout)
+
+    async def get_session(self) -> Optional[aiohttp.ClientSession]:
+        if self._session is None or self._session.closed:
+            self._session = await self.get_new_session()
+
+        if not self._session._loop.is_running():  # NOQA
+            # `aiohttp` juggles event-loops and breaks already opened session
+            # So... when we detect a broken session need to fix it by re-creating it
+            await self._session.close()
+            self._session = await self.get_new_session()
+
+        return self._session
+
+    async def get_new_session(self) -> aiohttp.ClientSession:
+        return aiohttp.ClientSession(connector=self._connector_class(**self._connector_init))
+
+    async def send(self, endpoint, json_message, api_key=None, api_secret=None):
         """Immediately record an event or a profile update.
 
         :param endpoint: the Mixpanel API endpoint appropriate for the message
@@ -591,9 +604,9 @@ class Consumer(object):
         if endpoint not in self._endpoints:
             raise MixpanelException('No such endpoint "{0}". Valid endpoints are one of {1}'.format(endpoint, self._endpoints.keys()))
 
-        self._write_request(self._endpoints[endpoint], json_message, api_key, api_secret)
+        await self._write_request(self._endpoints[endpoint], json_message, api_key, api_secret)
 
-    def _write_request(self, request_url, json_message, api_key=None, api_secret=None):
+    async def _write_request(self, request_url, json_message, api_key=None, api_secret=None):
         if isinstance(api_key, tuple):
             # For compatibility with subclassers, allow the auth details to be
             # packed into the existing api_key param.
@@ -609,21 +622,23 @@ class Consumer(object):
 
         basic_auth = None
         if api_secret is not None:
-            basic_auth = HTTPBasicAuth(api_secret, '')
+            basic_auth = BasicAuth(api_secret, "")
 
         try:
-            response = self._session.post(
-                request_url,
-                data=params,
-                auth=basic_auth,
-                timeout=self._request_timeout,
-                verify=self._verify_cert,
-            )
+            async with RetryClient(
+                await self.get_session(), retry_options=self.retry_args, auth=basic_auth
+            ) as client:
+                response = await client.post(
+                    request_url,
+                    data=params,
+                    timeout=self._timeout,
+                    verify_ssl=self._verify_cert,
+                )
         except Exception as e:
-            six.raise_from(MixpanelException(e), e)
+            raise MixpanelException from e
 
         try:
-            response_dict = response.json()
+            response_dict = await response.json()
         except ValueError:
             raise MixpanelException('Cannot interpret Mixpanel server response: {0}'.format(response.text))
 
@@ -679,7 +694,7 @@ class BufferedConsumer(object):
         self._max_size = min(50, max_size)
         self._api_key = None
 
-    def send(self, endpoint, json_message, api_key=None, api_secret=None):
+    async def send(self, endpoint, json_message, api_key=None, api_secret=None):
         """Record an event or profile update.
 
         Internally, adds the message to a buffer, and then flushes the buffer
@@ -710,29 +725,29 @@ class BufferedConsumer(object):
         self._api_key = api_key
         self._api_secret = api_secret
         if len(buf) >= self._max_size:
-            self._flush_endpoint(endpoint)
+            await self._flush_endpoint(endpoint)
 
-    def flush(self):
+    async def flush(self):
         """Immediately send all buffered messages to Mixpanel.
 
         :raises MixpanelException: if the server is unreachable or any buffered
             message cannot be processed
         """
         for endpoint in self._buffers.keys():
-            self._flush_endpoint(endpoint)
+            await self._flush_endpoint(endpoint)
 
-    def _flush_endpoint(self, endpoint):
+    async def _flush_endpoint(self, endpoint):
         buf = self._buffers[endpoint]
 
         while buf:
             batch = buf[:self._max_size]
             batch_json = '[{0}]'.format(','.join(batch))
             try:
-                self._consumer.send(endpoint, batch_json, api_key=self._api_key)
+                await self._consumer.send(endpoint, batch_json, api_key=self._api_key)
             except MixpanelException as orig_e:
                 mp_e = MixpanelException(orig_e)
                 mp_e.message = batch_json
                 mp_e.endpoint = endpoint
-                six.raise_from(mp_e, orig_e)
+                raise mp_e from orig_e
             buf = buf[self._max_size:]
         self._buffers[endpoint] = buf
