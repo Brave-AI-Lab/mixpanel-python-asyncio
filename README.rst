@@ -13,7 +13,7 @@ Installation
 
 The library can be installed using pip::
 
-    pip install https://github.com/Kylmakalle/mixpanel-python-asyncio/archive/master.zip
+    pip install https://github.com/Brave-AI-Lab/mixpanel-python-asyncio/archive/master.zip
 
 
 Getting Started
